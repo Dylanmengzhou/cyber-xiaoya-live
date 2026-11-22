@@ -405,7 +405,7 @@ input[type=text]:focus,textarea:focus{border-color:#3b82f6}
   <div id="capOverlay" style="display:none"><div class="capInner"></div></div>
       <div id="mask">
         <h2>▶ 连线数字人</h2>
-        <div class="cap" id="maskCap">组件版：Vidu 只做渲染推流，LLM / TTS 全在本机。<br>默认平台托管 RTC 频道，无需自备。</div>
+        <div class="cap" id="maskCap">Vidu 渲染数字人并推流。<br>默认使用平台托管的 RTC 频道。</div>
         <div class="maskRow">
           <button class="primary" id="btnGo" style="font-size:15px; padding:10px 26px">开始连线</button>
           <button id="btnRec" title="开播时让 Vidu 服务端录播，播完自动下载到本地（建会话时生效）">⏺ 自动录播：关</button>
@@ -439,7 +439,7 @@ input[type=text]:focus,textarea:focus{border-color:#3b82f6}
   <div class="shead"><span>🎙 音色切换 <span style="color:var(--dim); font-weight:400">点击即热切 · 下句话生效</span></span>
     <button class="ghost" id="btnVoiceX">✕</button></div>
   <div class="sbar"><button id="btnVoiceRefresh" class="ghost">🔄 刷新列表</button>
-    <span style="color:var(--dim); font-size:12px">TTS = 本机 OmniVoice · 直播中切换不断线</span></div>
+    <span id="voiceProvider" style="color:var(--dim); font-size:12px"></span></div>
   <div id="voiceList"><div class="empty" style="padding:14px; color:var(--dim)">点开面板自动加载…</div></div>
 </div>
 
@@ -538,14 +538,14 @@ input[type=text]:focus,textarea:focus{border-color:#3b82f6}
         <label>单场上限(s)</label><input type="number" id="s_maxdur" min="120" step="60"></div>
     </div>
 
-    <div class="sect"><h3>声音（本机 OmniVoice）</h3>
+    <div class="sect"><h3 id="voiceHeading">声音</h3>
       <div class="row"><label>音色预设</label><select id="s_voice"></select>
         <button id="btnVoiceRefresh" class="ghost">刷新</button>
         <button id="btnPreview" class="ghost">▶ 试听</button></div>
       <div class="row"><label>试听文本</label><input type="text" id="s_prevtxt" value="你好呀，这是我的声音，今天也要开心哦。"></div>
       <div class="row"><label>喂流帧长(ms)</label><input type="number" id="s_chunk" min="20" max="1000" step="20">
         <label>输出按句 type10</label><input type="checkbox" id="s_persent" class="chk"></div>
-      <div class="hint">音色库目录（与语音桥同源，design.json / ref_audio+omnivoice.txt）见 config.json 的 tts.voices_dir。</div>
+      <div class="hint" id="voiceSettingsHint"></div>
     </div>
 
     <div class="sect"><h3>LLM（OpenAI 兼容 · 默认 DeepSeek）</h3>
@@ -1354,7 +1354,7 @@ async function poll(){
     fxWasActive = !!st.active;
     const vp = $("voicePill");
     vp.style.display = "";
-    vp.textContent = "🎙 " + (st.voice || "?");
+    vp.textContent = "🎙 " + (st.voice_label || st.voice || "?");
     if (st.transcripts_total != null && st.transcripts_total < state.since) state.since = 0;   // 桥重启过(tr_total 归零) → 游标重置, 否则新字幕全被旧游标挡掉(2026-10-13)
     if (st.new_transcripts) for (const t of st.new_transcripts){ state.since = Math.max(state.since, t.i); trAdd(t.role, t.text, t.role + ":" + t.i); }
     if (!st.active && state.liveId){
@@ -2145,20 +2145,28 @@ loadAvatarStill();          // 未连线底图: 上一次连线数字人的原�
    后端: GET /api/tts/voices(列表) + POST /api/tts/voice(热切+持久化) + POST /api/tts/preview(试听 WAV)。
    引擎每次合成都实时读 tts.voice → 直播中切换, 下一句话就换嗓子, Vidu 端口型照跟不断线。 */
 let vpAudio = null;
+function showVoiceProvider(engine){
+  const cloud = engine === "volcengine";
+  const provider = cloud ? "火山引擎" : "OmniVoice";
+  $("voiceProvider").textContent = provider;
+  $("voiceHeading").textContent = "声音（" + provider + "）";
+  $("voiceSettingsHint").textContent = cloud ? "" : "音色库目录见 config.json 的 tts.voices_dir。";
+}
 async function loadVoices(){
   const box = $("voiceList"); if (!box) return;
   box.textContent = "加载中…";
   try{
     const d = await api("/api/tts/voices");
+    showVoiceProvider(d.engine);
     box.replaceChildren();
-    if (!(d.voices||[]).length){ box.textContent = "没扫到音色（检查 voices 目录配置）"; return; }
+    if (!(d.voices||[]).length){ box.textContent = "未配置音色"; return; }
     for (const v of (d.voices||[])){
       const row = document.createElement("div");
       row.className = "vrow" + (v.name === d.current ? " on" : "");
       const nm = document.createElement("span"); nm.className = "vname";
-      nm.textContent = (v.name === d.current ? "✓ " : "") + v.name;
+      nm.textContent = (v.name === d.current ? "✓ " : "") + (v.kind === "cloud" ? v.label : v.name);
       const lb = document.createElement("span"); lb.className = "vlabel";
-      lb.textContent = (v.label && v.label !== v.name) ? v.label : (v.kind || "");
+      lb.textContent = v.kind === "cloud" ? "" : (v.label && v.label !== v.name) ? v.label : (v.kind || "");
       const pv = document.createElement("button"); pv.className = "vprev"; pv.textContent = "▶ 试听";
       pv.addEventListener("click", async e=>{
         e.stopPropagation();
@@ -2349,12 +2357,13 @@ $("btnImportFolder").addEventListener("click", async ()=>{
 async function refreshVoices(){
   try{
     const d = await api("/api/tts/voices");
+    showVoiceProvider(d.engine);
     const sel = $("s_voice");
     sel.innerHTML = "";
     for (const v of d.voices){
       const o = document.createElement("option");
       o.value = v.name;
-      o.textContent = v.label + (v.kind === "design" ? "（设计）" : "（克隆）");
+      o.textContent = v.kind === "cloud" ? v.label : v.label + (v.kind === "design" ? "（设计）" : "（克隆）");
       if (v.name === d.current) o.selected = true;
       sel.appendChild(o);
     }
@@ -2376,7 +2385,7 @@ $("btnPreview").addEventListener("click", async ()=>{
       body:JSON.stringify({text:$("s_prevtxt").value, voice:$("s_voice").value})});
     if (!r.ok){ const j = await r.json().catch(()=>({})); throw new Error(j.detail || r.status); }
     const blob = await r.blob();
-    new Audio(URL.createObjectURL(blob)).play();
+    await new Audio(URL.createObjectURL(blob)).play();
   }catch(e){ toast("试听失败: " + (e.message||e), true); }
   finally{ btn.disabled = false; btn.textContent = "▶ 试听"; }
 });

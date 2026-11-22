@@ -104,7 +104,7 @@ ffmpeg -version
 
 ### 2.4 TTS —— 这一步最容易卡住
 
-项目**只认 OmniVoice**（`tts.engine = "omnivoice"`），因为要支持"克隆音色 + 直播中热切音色"。
+项目默认使用 OmniVoice（`tts.engine = "omnivoice"`），也可使用火山引擎豆包语音 API。
 
 #### 方案 A：OmniVoice + WSL2（推荐，作者本机就是这样跑的）
 
@@ -158,6 +158,12 @@ curl.exe -s -o NUL -w "%{http_code}" http://127.0.0.1:9877/    # 期望 200
 
 桥没有 TTS 也能起来：舞台页能开、能连线、画面会动、字幕会滚，只是**她不会说话**。
 适合先把 Vidu 链路和舞台页跑通，再回头折腾 TTS。
+
+#### 方案 C：火山引擎豆包语音 API
+
+在 `config.json` 中将 `tts.engine` 设为 `volcengine`，并将 `tts.volcengine.key_file` 指向只包含 API Key 的本地文本文件。文件建议放在已被 Git 忽略的目录中，例如 `assets/local/`。
+
+`tts.volcengine.voices` 将火山引擎音色 ID 映射为舞台页显示名称，`tts.voice` 选择其中一个 ID。示例配置包含「小何 2.0」，资源 ID 为 `seed-tts-2.0`。配置完成后，打开舞台页的「设置 → 声音 → 试听」即可测试。 [火山引擎语音合成文档](https://docs.volcengine.com/docs/doubao-voice/unidirectional-streaming-text-to-speech-http?lang=zh)
 
 ---
 
@@ -245,6 +251,17 @@ copy config.example.json config.json
 | `bridge.port` | 默认 8795 |
 
 `config.json` 里有密钥，**已被 `.gitignore` 排除**，不要提交。
+
+### 恢复加密备份
+
+有恢复口令时，在仓库根目录解密 `config.local.tar.gpg`。口令需单独保存和迁移。
+
+```sh
+umask 077
+gpg --batch --pinentry-mode loopback \
+    --passphrase-file "$HOME/.config/cyber-xiaoya-live/backup-passphrase" \
+    --decrypt config.local.tar.gpg | tar -xk
+```
 
 ---
 

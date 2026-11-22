@@ -533,7 +533,7 @@ async def tts_delete(body: DeleteFileBody):
 async def tts_voices():
     c = appconf.load().get("tts") or {}
     voices = engine._voices()
-    return {"current": c.get("voice", ""),
+    return {"current": c.get("voice", ""), "engine": c.get("engine") or "omnivoice",
             "voices": [{"name": k, "label": v.get("label", k), "kind": v.get("kind")}
                        for k, v in sorted(voices.items())],
             "active_base": engine.tts.active_base()}
@@ -578,16 +578,16 @@ async def settings_get():
 
 @app.post("/api/settings")
 async def settings_post(body: dict):
-    merged = appconf.patch(body or {})
-    # 引擎里的 TTS 基址跟随配置
-    c = merged.get("tts") or {}
-    engine.tts.cfg_base = (c.get("omnivoice_base") or "").rstrip("/")
+    appconf.patch(body or {})
+    if body.get("tts"):
+        engine.configure_tts()
     return {"ok": True, "settings": appconf.public()}
 
 
 @app.post("/api/settings/reload")
 async def settings_reload():
     appconf.reload()
+    engine.configure_tts()
     return {"ok": True, "settings": appconf.public()}
 
 

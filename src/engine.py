@@ -2,7 +2,7 @@
 
 一次完整链路:
   用户文字 → type9(input_transcription) → LLM 流式回复 → 增量分句 →
-  每句 TTS(OmniVoice/点播文件) → type10(output_transcription) →
+  每句 TTS(OmniVoice/火山引擎) → type10(output_transcription) →
   裸 PCM 二进制帧按实时节奏喂 WS(48B/ms) → Vidu 渲染口型并推 RTC
 
 打断: 新文字进来 / 手动打断 → 发 type7(audio_interrupted) + 取消当前喂流任务 +
@@ -22,7 +22,7 @@ import httpx
 
 from . import config as appconf
 from . import llm as llmmod
-from .tts import audio, omnivoice
+from .tts import audio, omnivoice, volcengine
 from . import rtc_tokens
 from .vidu import client as vu
 from .vidu import signaling
@@ -50,13 +50,11 @@ def _ns() -> str:
 class Engine:
     # 代码版本标记: /api/health 会带出去 —— 用来确认"跑着的进程是不是最新代码"
     # (2026-10-09 反复出现"改了没生效"的误会: 进程内存里是启动那一刻的代码)
-    BUILD = "2026-10-17.prefetch.v14"
+    BUILD = "2026-11-21.volcengine"
 
     def __init__(self):
         self.llm = llmmod.LLMClient(lambda: (appconf.load().get("llm") or {}))
-        self.tts = omnivoice.OmniVoiceTTS(
-            (appconf.load().get("tts") or {}).get("omnivoice_base", ""),
-            (appconf.load().get("tts") or {}).get("omnivoice_timeout_sec", 120))
+        self.configure_tts()
         # ---- 会话状态 ----
         self.phase = "idle"            # idle | creating | live
         self.mode = ""                 # managed | customer
@@ -208,8 +206,20 @@ class Engine:
 
     # ============ 会话启动 / 结束 ============
 
+    def configure_tts(self) -> None:
+        c = appconf.load().get("tts") or {}
+        if c.get("engine") == "volcengine":
+            self.tts = volcengine.VolcengineTTS(c.get("volcengine") or {})
+        elif isinstance(getattr(self, "tts", None), omnivoice.OmniVoiceTTS):
+            self.tts.cfg_base = (c.get("omnivoice_base") or "").rstrip("/")
+        else:
+            self.tts = omnivoice.OmniVoiceTTS(c.get("omnivoice_base", ""), c.get("omnivoice_timeout_sec", 120))
+
     def _voices(self) -> dict:
         c = appconf.load().get("tts") or {}
+        if c.get("engine") == "volcengine":
+            voices = (c.get("volcengine") or {}).get("voices") or {}
+            return {name: {"name": name, "label": label, "kind": "cloud"} for name, label in voices.items()}
         return omnivoice.scan_voices(c.get("voices_dir", ""))
 
     def _voice_preset(self) -> dict:
@@ -2141,6 +2151,9 @@ class Engine:
     def status(self, since: int = -1) -> dict:
         live_now = self.phase == "live"
         trs = list(self.transcripts)
+        tts_conf = appconf.load().get("tts") or {}
+        voice = tts_conf.get("voice", "")
+        cloud_voices = (tts_conf.get("volcengine") or {}).get("voices") or {}
         out = {
             "active": live_now, "phase": self.phase, "mode": self.mode,
             "model": self.model, "live_id": self.live_id or None,
@@ -2149,7 +2162,8 @@ class Engine:
             "caption": self.caption,
             "caption_idx": self.caption_idx if self.caption_lines else None,
             "caption_lines": self.caption_lines or None,
-            "voice": (appconf.load().get("tts") or {}).get("voice", ""),
+            "voice": voice,
+            "voice_label": cloud_voices.get(voice) if tts_conf.get("engine") == "volcengine" else None,
             "tts_base": self.tts.active_base(),
             "ws": self.sig.stats() if self.sig else None,
             "ended": self.ended, "error": self.error,

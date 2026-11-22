@@ -28,7 +28,9 @@ def main() -> int:
     print(f"  → {url}")
     print(f"  会话端点: https://{(conf.get('vidu') or {}).get('host')}  (组件版 /live/s_avatar/component)")
     print(f"  LLM    : {(conf.get('llm') or {}).get('base_url')}  {(conf.get('llm') or {}).get('model')}")
-    print(f"  TTS    : {(conf.get('tts') or {}).get('omnivoice_base')}  音色={(conf.get('tts') or {}).get('voice')}")
+    tts = conf.get("tts") or {}
+    provider = "火山引擎" if tts.get("engine") == "volcengine" else tts.get("omnivoice_base")
+    print(f"  TTS    : {provider}  音色={tts.get('voice')}")
     print()
 
     if not args.no_browser:

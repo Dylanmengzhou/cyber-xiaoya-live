@@ -46,6 +46,13 @@
     "engine": "omnivoice",
     "omnivoice_base": "http://127.0.0.1:9877",
     "omnivoice_timeout_sec": 120,
+    "volcengine": {
+      "key_file": "",
+      "resource_id": "seed-tts-2.0",
+      "voices": {
+        "zh_female_xiaohe_uranus_bigtts": "小何 2.0"
+      }
+    },
     "voices_dir": "",
     "voice": "tw-xiaoya",
     "files_dir": "audio",
